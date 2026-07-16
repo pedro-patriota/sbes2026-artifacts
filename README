@@ -1,0 +1,280 @@
+# Investigating the Impact of Depth Limit on Semantic Conflict Detection
+
+## Abstract
+
+Collaborative software development requires periodic code integration of independent contributions into a shared codebase, a process that may introduce dynamic semantic conflicts — behavioral interference between changes, not captured by textual merge tools. Static-analysis-based approaches for detecting such conflicts rely on configuration parameters that affect both detectability accuracy and computational cost. A key parameter is the method traversal depth limit, which determines how deeply chains of method calls are followed when tracking interference. In this paper, we analyze how varying the depth limit affects both the number of reported interferences and the execution performance of the Overriding Assignment (OA) analysis for interference detection. We evaluate it on two datasets from previous studies: a manually curated benchmark and a broader and more diverse dataset covering a wider range of project sizes and merge patterns. Both datasets comprise Java open-source projects from GitHub, and our findings are consistent across them. We execute the analyses limiting the depth to 5, 10, and 20 method calls. Our results show that increasing the depth limit does not consistently improve detection: the relationship is non-monotonic. The gain is most notable when moving from depth 5 to 10, where the number of newly reported scenarios increases substantially. Beyond depth 10, however, the number of detected scenarios and total interferences both decrease considerably. These gains come at a measurable cost: average analysis time and memory consumption increase noticeably at greater depths, with diminishing returns. Nevertheless, accuracy and precision tend to improve from depth 5 to 10, but degrade when moving further to depth 20.
+
+**Authors**: Pedro Patriota[^1], Matheus Barbosa[^1], Paulo Borba[^1]
+
+[^1]: Centro de Informática, Universidade Federal de Pernambuco, Recife, Brazil — pasp@cin.ufpe.br, mbo2@cin.ufpe.br, phmb@cin.ufpe.br
+
+## Paper
+
+Full accepted paper: [paper.pdf](https://doi.org/10.17605/OSF.IO/BAXRP)
+
+## Investigating the Impact of Depth Limit on Semantic Conflict Detection
+
+To investigate the impact of the depth limit parameter on semantic conflict detection, we perform an empirical study evaluating the OA (Overriding Assignment) interprocedural static analysis at three distinct depth configurations: 5, 10, and 20 method calls. We assess how each configuration affects both the detectability of interferences and the computational cost of the analysis. Guided by this goal, we formulate the following research questions:
+
+- **RQ1**: How does the depth limit affect the number of detected interferences in merge scenarios?
+- **RQ2**: How is accuracy affected by depth limitation?
+- **RQ3**: How do different depth configurations affect computational performance?
+
+These questions allow us to understand the impact of the traversal depth limit and provide valuable insights into how to configure the analysis in practice. RQ1 and RQ2 focus on detection effectiveness, while RQ3 examines the execution time and memory cost associated with each configuration.
+
+To answer these research questions, we execute the OA interprocedural analysis using the SPARK pointer-analysis call graph on both datasets, at each of the three depth limits. We apply a 20-minute timeout per scenario via the `-t 1200` flag and enable partial-result capture with `-prt` (`--partial-results-on-timeout`): when a scenario times out, any interference detected before the boundary is retained and written to `out.json` rather than discarded. We repeat computational cost measurements 10 times per experimental unit to obtain stable performance estimates.
+
+## Sample
+
+We evaluate the analysis on two datasets from prior studies. The first is a manually curated benchmark (MergeDataset) containing 99 experimental units from 32 open-source Java projects hosted on GitHub, with per-scenario ground truth labels based on the Locally Observable Interference (LOI) criterion. The second is a broader reference dataset (RefDataset) of 846 experimental units from 295 open-source Java projects, selected to cover a wider range of project sizes and merge patterns. Both datasets include only scenarios where both parents modified the same method declaration, the condition most prone to behavioral interference.
+
+## Data Availability, Storage, and Ethical Considerations
+
+- **Source**: all merge scenarios come from public, open-source Java repositories hosted on GitHub. No private, personal, or sensitive data is collected or distributed; only source code and commit metadata (project, class, method, merge commit) already public on GitHub are used.
+- **Storage**: the raw analysis outputs (`out.json`, CSVs, performance logs) for all three depth configurations (5, 10, 20) and both datasets are provided in `analysisReport/`. Expect a few hundred MB total across all depth/dataset/call-graph combinations; individual `out.json` files and CSVs are a few MB each.
+- **Reuse**: the datasets (`mergedataset`, `ref-dataset`) are themselves separate open repositories (linked above) and follow their own licensing; consult them directly if you plan to redistribute the underlying project data.
+
+## Study Replication
+
+Tools and datasets used in the study:
+
+- Static analysis tool: [conflict-static-analysis](https://github.com/spgroup/conflict-static-analysis/tree/sbes2026)
+- Mining infrastructure: [miningframework](https://github.com/spgroup/miningframework/tree/sbes2026)
+- Merge scenario samples: [mergedataset](https://github.com/spgroup/mergedataset/blob/master/README.md) and [ref-dataset](https://github.com/victorlira/ref-dataset)
+
+Below are the steps to replicate the study using our dataset, or to perform a new one using another sample.
+
+### Replicating the study
+
+We recommend the execution of the next steps when trying to replicate our study.
+
+To facilitate replication, we created a Docker image that assembles all the necessary infrastructure. You need Docker installed on your machine — see the official documentation: https://docs.docker.com/desktop/install
+
+After building the image, the experiment is orchestrated by a set of shell scripts located in the [`docker/scripts/`](https://github.com/spgroup/conflict-static-analysis/tree/sbes2026/docker/scripts) folder of the conflict-static-analysis repository. Execute them in the following order:
+
+1. `create_containers.sh` — creates 10 Docker containers, each allocated 4 CPUs and 20 GB RAM
+2. `clear_containers.sh` — removes residues from previous runs inside the containers
+3. `update_cpus.sh` — assigns non-overlapping CPU sets to each container
+4. `copy_to_containers.sh` — copies the analysis JAR and `run_organize_monit_exp.py` into each container
+5. `run_in_all_containers.sh` — launches `run_organize_monit_exp.py` in parallel across all containers; each run invokes `./gradlew run -DmainClass=services.outputProcessors.soot.Main --args="-ioa -t 1200 -cg SPARK -prt"` and monitors CPU and memory via cgroup counters at one-second intervals
+6. `copy_results.sh` — copies the per-run result folders back from the containers to the host
+
+**Results used in the paper are in the `analysisReport` folder. Re-running the steps above will regenerate them.**
+
+# OA Analysis Report
+
+Analysis and visualization tool for Overriding Assignment (OA) static analysis results. Processes conflict data, benchmarks performance, and compares predictions against ground truth.
+
+## Requirements
+
+**Software environment**
+
+- Python 3.9+ (tested with the `pandas`, `matplotlib`, `seaborn`, `scikit-learn` versions pinned in `requirements.txt`)
+- OS: Linux, macOS, or Windows — no OS-specific code is used
+- To *re-run the static analysis itself* (not required just to analyze the provided results): Java 11+, Gradle (wrapper included in the `conflict-static-analysis` repository), and Docker (for the containerized replication described below)
+
+**Hardware**
+
+- Analyzing the provided `analysisReport/` results with `oaAnalysis.py`: a standard laptop is sufficient (no GPU, no special peripherals); a few hundred MB of free disk space for the output CSVs/PNGs.
+- Re-running the full static analysis from scratch (optional, see "Study Replication" below): the study was executed on 10 Docker containers, each allocated 4 CPUs and 20 GB RAM; a machine with comparable or greater resources is recommended if reproducing the full experiment rather than a single scenario.
+
+## Installation
+
+1. Clone this repository and enter its directory.
+2. Install the Python dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Verify the installation by running the tool against one of the provided results:
+
+   ```bash
+   python oaAnalysis.py out.json=analysisReport/depth20MergeDatasetSPARK/conflictsData/out.json plot=true
+   ```
+
+   **Expected output**: the command prints a console summary of conflict statistics (counts, depths, type classification) and writes `conflict_stacktrace_stats.csv`, `scenariojar_stats.csv`, and the corresponding PNG plots into `analysisReport/depth20MergeDatasetSPARK/conflictsData/`. If these files are created without errors, the installation is working correctly.
+
+## Usage
+
+All analysis is run through `oaAnalysis.py` using `key=value` arguments.
+
+### Single dataset
+
+```bash
+python oaAnalysis.py out.json=analysisReport/depth20MergeDatasetSPARK/conflictsData/out.json plot=true
+```
+
+### Compare two datasets
+
+```bash
+python oaAnalysis.py \
+  out.json=analysisReport/depth10MergeDatasetSPARK/conflictsData/out.json \
+  out.json2=analysisReport/depth20MergeDatasetSPARK/conflictsData/out.json \
+  labels="Depth 10,Depth 20" \
+  plot=true
+```
+
+### Compare three or more datasets
+
+Pass multiple `out.json` arguments — the tool automatically switches to multi-compare mode:
+
+```bash
+python oaAnalysis.py \
+  out.json=path/a/out.json \
+  out.json2=path/b/out.json \
+  out.json3=path/c/out.json \
+  labels="A,B,C" \
+  plot=true
+```
+
+### Performance analysis
+
+```bash
+python oaAnalysis.py \
+  performancedata=analysisReport/depth20MergeDatasetSPARK/perfomanceData \
+  plot=true
+```
+
+Aggregates 10 replicate runs from `results1/` – `results10/` using mean and majority voting, then writes aggregated CSVs/JSON to `perfomanceReport/`.
+
+### Ground truth comparison
+
+```bash
+python oaAnalysis.py \
+  performancedata=analysisReport/depth20MergeDatasetSPARK/perfomanceData \
+  mdsgroundtruth=loi.csv \
+  plot=true
+```
+
+Alternatively, point directly to the aggregated soot results CSV with `perf_soot_path=`:
+
+```bash
+python oaAnalysis.py \
+  perf_soot_path=analysisReport/depth20MergeDatasetSPARK/perfomanceData/perfomanceReport/performance_soot_results_stats.csv \
+  mdsgroundtruth=loi.csv \
+  plot=true
+```
+
+Matches soot results against `loi.csv` (LOI column) and reports precision, recall, F1, and accuracy using three parity rules. Source resolution priority: `perf_soot_path` > `sootresults` > `performancedata`.
+
+### Subset non-timeout comparison
+
+```bash
+python oaAnalysis.py \
+  subsetofnontimeouts=path/a/perfomanceData,path/b/perfomanceData \
+  plot=true
+```
+
+Compares only scenarios that did not time out across all listed datasets.
+
+## Arguments
+
+| Argument | Description |
+|---|---|
+| `out.json=` | Input conflict JSON file |
+| `out.json2=`, `out.json3=`, … | Additional JSONs for multi-dataset comparison |
+| `labels=` | Comma-separated display labels for comparison datasets |
+| `plot=` | `true` to generate PNG visualizations |
+| `performancedata=` | Path to performance data directory |
+| `mdsgroundtruth=` | Path to ground truth CSV (`loi.csv`) |
+| `perf_soot_path=` | Direct path to `performance_soot_results_stats.csv` for ground truth matching |
+| `sootresults=` | Path to a specific `soot-results.csv` for ground truth matching |
+| `subsetofnontimeouts=` | Comma-separated paths for non-timeout subset comparison |
+
+## Analysis modules
+
+### Conflict analysis (`analyzers/conflict_analyzer.py`)
+
+Processes `out.json` and computes per-conflict metrics:
+
+- Stack trace lengths (left and right), depth, and diff
+- Whether conflicting methods share the same class or method
+- Conflict type classification (A1, B1, B2/C2, D3, F2, Other) based on depth and class/method overlap
+- Distribution across scenarios and JARs
+- Depth loss analysis: how many conflicts/scenarios are cut at depth thresholds 5–14
+
+**Outputs**: `conflict_stacktrace_stats.csv`, `scenariojar_stats.csv`, console summary
+
+### Scenario analysis (`analyzers/scenario_analyzer.py`)
+
+Aggregates conflict metrics at the scenario (JAR) level:
+
+- Conflicts per scenario / scenarios per JAR
+- Median and max depth per scenario grouped by depth ranges (0–2, 2–5, 5–10, 10–20)
+- Percentile thresholds: fraction of scenarios meeting various depth/conflict-count criteria
+
+### Performance analysis (`analyzers/performance_analyzer.py`)
+
+Reads 10 replicate benchmark runs and aggregates them:
+
+- Execution time (mean, median, percentiles, timeout rate)
+- Peak memory (GB) and peak CPU (%) via resource usage timeseries
+- Majority-vote aggregation of boolean OA-Inter predictions across replicates
+- Timeout detection and per-scenario statistics
+
+**Outputs**: `performance_soot_results_stats.csv`, `performance_summary_stats.json`, `performance_resource_stats.csv`
+
+### Ground truth comparison (`analyzers/ground_truth_comparator.py`)
+
+Validates OA predictions against manually-labeled LOI ground truth:
+
+- Matches on (project, class, method, merge commit)
+- Applies three parity rules: strict, timeout-as-false, timeout-as-true
+- Computes confusion matrix, precision, recall, F1, and accuracy
+
+**Output**: `ground_truth_comparison_summary.txt`
+
+## Visualizations
+
+When `plot=true`, PNG files are saved alongside the input data. Generated plots include:
+
+- **Histograms**: stack depth, stacktrace diff, execution time, memory, CPU
+- **Pie charts**: conflict type distribution, same-class rate, same-method rate
+- **Line plots**: conflicts vs. depth threshold, depth loss curves
+- **Bar charts**: conflicts/scenarios per JAR, depth metrics per scenario, timeout rates
+- **Comparison plots**: side-by-side versions of all the above for multi-dataset runs
+- **Performance timeseries**: raw and spline-smoothed CPU/memory over time
+
+## Project structure
+
+```
+OA-analysis-report/
+├── oaAnalysis.py               # Entry point: argument parsing and pipeline orchestration
+├── constants.py                # Column names, thresholds, time groups, resource buckets
+├── loi.csv                     # Ground truth LOI labels
+├── requirements.txt
+│
+├── utils/
+│   └── label_utils.py          # Shared path-to-label extraction helper
+│
+├── processors/
+│   ├── conflict_processor.py   # Parses out.json → conflict_stacktrace_stats.csv
+│   └── performance_aggregator.py  # Aggregates 10 runs → perfomanceReport/
+│
+├── analyzers/
+│   ├── conflict_analyzer.py    # Conflict statistics and plots
+│   ├── scenario_analyzer.py    # Scenario-level statistics and plots
+│   ├── performance_analyzer.py # Performance benchmarking and plots
+│   └── ground_truth_comparator.py  # LOI prediction evaluation
+│
+├── visualization/
+│   ├── __init__.py             # Visualizer class (composes all mixins)
+│   ├── bar_charts.py           # Bar chart methods (single, grouped, comparison, horizontal)
+│   ├── histograms.py           # Histogram and distribution comparison methods
+│   ├── pie_charts.py           # Pie chart methods
+│   ├── timeseries.py           # Timeseries, smoothed curve, and grouped timeseries methods
+│   └── line_charts.py          # Depth line plots and JAR metric charts
+│
+└── analysisReport/             # Results organised by depth + dataset + call graph
+    ├── depth5MergeDatasetSPARK/
+    ├── depth10MergeDatasetSPARK/
+    ├── depth20MergeDatasetSPARK/
+    ├── depth20MergeDatasetCHA/
+    ├── depth20MergeDatasetCHA&SPARK/
+    └── …
+        ├── conflictsData/      # out.json, CSVs, PNGs
+        └── perfomanceData/
+            ├── results1/ … results10/
+            └── perfomanceReport/
+```
